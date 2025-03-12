@@ -10,3 +10,4 @@ openai-whisper
 ffmpeg-python
 pydrive2
 openai
+pydub
