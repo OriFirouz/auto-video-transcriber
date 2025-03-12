@@ -1,28 +1,32 @@
 import streamlit as st
+import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import io
 
-# פונקציית התחברות ל-Google Drive
+# התחברות ל-Google Drive דרך secrets של Streamlit
 @st.cache_resource
 def connect_to_drive():
-    creds_dict = {
-        # הכנס כאן את תוכן קובץ ה-JSON שיצרת ב-Google Cloud
-    }
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive"])
+    creds_info = json.loads(st.secrets["google_credentials"]["credentials_json"])
+    creds = service_account.Credentials.from_service_account_info(
+        creds_info,
+        scopes=['https://www.googleapis.com/auth/drive']
+    )
     return build('drive', 'v3', credentials=creds)
 
 service = connect_to_drive()
 
-# פונקציה לקבלת תיקיות בדרייב
+# פונקציה לקבלת רשימת תיקיות ב-Drive
 def list_drive_folders():
-    results = service.files().list(q="mimeType='application/vnd.google-apps.folder'",
-                                   fields="files(id, name)").execute()
+    results = service.files().list(
+        q="mimeType='application/vnd.google-apps.folder'",
+        fields="files(id, name)"
+    ).execute()
     folders = results.get('files', [])
     return folders
 
-# ממשק בחירת תיקיות
+# ממשק המשתמש
 st.title('🎬 Auto Video Transcriber')
 st.write("בחר את התיקייה או התיקיות לסריקה:")
 
@@ -36,8 +40,10 @@ if st.button("התחל סריקה ותמלול"):
         folder_id = folder_options[folder_name]
         st.write(f"סריקה של תיקייה: {folder_name}")
 
-        results = service.files().list(q=f"'{folder_id}' in parents and mimeType contains 'video/'",
-                                       fields="files(id, name)").execute()
+        results = service.files().list(
+            q=f"'{folder_id}' in parents and mimeType contains 'video/'",
+            fields="files(id, name)"
+        ).execute()
         videos = results.get('files', [])
 
         if not videos:
@@ -45,22 +51,27 @@ if st.button("התחל סריקה ותמלול"):
         else:
             for video in videos:
                 st.write(f"תמלול של {video['name']} בתהליך...")
+
                 request = service.files().get_media(fileId=video['id'])
                 fh = io.BytesIO()
                 downloader = MediaIoBaseDownload(fh, request)
 
                 done = False
-                while done is False:
+                while not done:
                     status, done = downloader.next_chunk()
                     st.write(f"התקדמות הורדה: {int(status.progress() * 100)}%")
 
-                # יצירת קובץ טקסט פשוט כדוגמה לתמלול (צריך להחליף ב-AI אמיתי)
+                # דוגמה פשוטה של יצירת תוכן תמלול
                 transcript_content = f"תמלול של הסרטון {video['name']}"
                 transcript_file = io.BytesIO(transcript_content.encode())
-
+                
                 file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
-                media = MediaIoBaseDownload(transcript_file, mimetype='text/plain')
+                media = MediaFileUpload(transcript_file, mimetype='text/plain', resumable=True)
 
-                service.files().create(body=file_metadata,
-                                       media_body=MediaFileUpload(f"{video['name']}.txt", mimetype='text/plain')).execute()
+                service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+
                 st.write(f"קובץ תמלול נוצר: {video['name']}.txt")
