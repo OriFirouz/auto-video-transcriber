@@ -1,14 +1,16 @@
 import streamlit as st
 import json
+import openai
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-import whisper
 import io
 import tempfile
-import ffmpeg
 
-# חיבור ל-Google Drive עם Secrets של Streamlit
+# הגדרת OpenAI API
+openai.api_key = st.secrets["openai"]["api_key"]
+
+# חיבור ל-Google Drive
 @st.cache_resource
 def connect_to_drive():
     creds_info = json.loads(st.secrets["google_credentials"]["credentials_json"])
@@ -20,14 +22,7 @@ def connect_to_drive():
 
 service = connect_to_drive()
 
-# טעינת מודל Whisper
-@st.cache_resource
-def load_whisper_model():
-    return whisper.load_model("base")
-
-model = load_whisper_model()
-
-# פונקציה לרשימת תיקיות ב-Google Drive
+# רשימת תיקיות בדרייב
 def list_drive_folders():
     results = service.files().list(
         q="mimeType='application/vnd.google-apps.folder'",
@@ -36,7 +31,7 @@ def list_drive_folders():
     folders = results.get('files', [])
     return folders
 
-# ממשק Streamlit
+# ממשק המשתמש
 st.title('🎬 Auto Video Transcriber')
 st.write("בחר את התיקייה או התיקיות לסריקה:")
 
@@ -61,6 +56,7 @@ if st.button("התחל סריקה ותמלול"):
             for video in videos:
                 st.write(f"תמלול של {video['name']} בתהליך...")
 
+                # הורדת הסרטון
                 request = service.files().get_media(fileId=video['id'])
                 video_file = io.BytesIO()
                 downloader = MediaIoBaseDownload(video_file, request)
@@ -72,21 +68,26 @@ if st.button("התחל סריקה ותמלול"):
 
                 video_file.seek(0)
 
-                # שמירת הקובץ באופן זמני לתמלול
-                with tempfile.NamedTemporaryFile(suffix='.mp4') as temp_video:
+                # שמירה זמנית של קובץ להעלאה ל-OpenAI Whisper API
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_video:
                     temp_video.write(video_file.read())
                     temp_video.flush()
 
-                    # תמלול עם whisper
-                    result = model.transcribe(temp_video.name, language="he")
-                    transcript_content = result["text"]
+                    # שליחת הסרטון לתמלול דרך Whisper API
+                    with open(temp_video.name, "rb") as audio_file:
+                        transcript = openai.Audio.transcribe(
+                            "whisper-1",
+                            audio_file,
+                            language="he"
+                        )
 
-                # יצירת קובץ עם התמלול
+                    transcript_content = transcript["text"]
+
+                # יצירת קובץ התמלול והעלאה ל-Drive
                 transcript_file = io.BytesIO(transcript_content.encode("utf-8"))
-
-                # העלאת התמלול ל-Google Drive
                 transcript_file.seek(0)
                 media = MediaIoBaseUpload(transcript_file, mimetype='text/plain', resumable=True)
+
                 file_metadata = {'name': f"{video['name']}_transcript.txt", 'parents': [folder_id]}
 
                 service.files().create(
