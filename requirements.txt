@@ -5,6 +5,7 @@ google-auth-httplib2
 google-api-python-client
 google-cloud-storage
 moviepy==1.0.3
+imageio[ffmpeg]
 openai-whisper
 ffmpeg-python
 pydrive2
