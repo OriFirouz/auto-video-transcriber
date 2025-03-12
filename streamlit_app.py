@@ -7,7 +7,6 @@ import io
 from moviepy.editor import VideoFileClip
 import openai
 import os
-from pydub import AudioSegment
 import math
 
 # חיבור ל-Google Drive
@@ -33,23 +32,22 @@ def list_drive_folders():
     ).execute()
     return results.get('files', [])
 
-# פונקציה לפיצול אודיו לחלקים של פחות מ-25MB
-def split_audio(audio_path, chunk_size_mb=24):
-    audio = AudioSegment.from_file(audio_path)
-    audio_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-
-    if audio_size_mb <= chunk_size_mb:
-        return [audio_path]
-
-    chunk_length_ms = math.ceil((chunk_size_mb / audio_size_mb) * len(audio))
+# פונקציה לפיצול קבצי אודיו גדולים
+def split_audio(file_path, chunk_size_mb=24):
+    audio_clip = VideoFileClip(file_path).audio
+    duration = audio_clip.duration
+    chunk_duration = (chunk_size_mb * 1024 * 1024) / (audio_clip.fps * audio_clip.nchannels * 2)
     chunks = []
+    start = 0
 
-    for i, start in enumerate(range(0, len(audio), chunk_length_ms)):
-        chunk = audio[start:start + chunk_length_ms]
-        chunk_filename = f"{audio_path}_chunk{i}.mp3"
-        chunk.export(chunk_filename, format="mp3")
+    while start < duration:
+        end = min(start + chunk_duration, duration)
+        chunk_filename = f"temp_audio_{len(chunks)}.mp3"
+        audio_clip.subclip(start, end).write_audiofile(chunk_filename)
         chunks.append(chunk_filename)
+        start = end
 
+    audio_clip.close()
     return chunks
 
 # Streamlit UI
@@ -73,58 +71,62 @@ if st.button("התחל סריקה ותמלול"):
 
         if not videos:
             st.write("לא נמצאו סרטונים.")
-        else:
-            for video in videos:
-                video_name = video['name']
-                st.write(f"תהליך תמלול של הסרטון: {video_name}")
+            continue
 
-                request = service.files().get_media(fileId=video['id'])
-                video_bytes = io.BytesIO()
-                downloader = MediaIoBaseDownload(video_bytes, request)
+        for video in videos:
+            video_name = video['name']
+            st.write(f"תהליך תמלול של הסרטון: {video_name}")
 
-                done = False
-                while not done:
-                    status, done = downloader.next_chunk()
-                    st.write(f"הורדת וידאו: {int(status.progress() * 100)}%")
+            request = service.files().get_media(fileId=video['id'])
+            video_bytes = io.BytesIO()
+            downloader = MediaIoBaseDownload(video_bytes, request)
 
-                video_bytes.seek(0)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                st.progress(status.progress(), text=f"מוריד סרטון: {int(status.progress() * 100)}%")
 
-                with open("temp_video.mp4", "wb") as f:
-                    f.write(video_bytes.read())
+            video_bytes.seek(0)
 
-                video_clip = VideoFileClip("temp_video.mp4")
-                video_clip.audio.write_audiofile("temp_audio.mp3")
-                video_clip.close()
+            with open("temp_video.mp4", "wb") as f:
+                f.write(video_bytes.read())
 
-                audio_chunks = split_audio("temp_audio.mp3")
+            audio_chunks = split_audio("temp_video.mp4")
 
-                full_transcript = ""
+            full_transcript = ""
+            total_chunks = len(audio_chunks)
 
-                for chunk_path in audio_chunks:
-                    with open(chunk_path, "rb") as audio_file:
-                        transcript_response = openai.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            language="he"
-                        )
-                        full_transcript += transcript_response.text + "\n"
-                    os.remove(chunk_path)
+            progress_bar = st.progress(0, text="מתמלל...")
 
-                transcript_bytes = io.BytesIO(full_transcript.encode('utf-8'))
+            for i, audio_chunk in enumerate(audio_chunks):
+                with open(audio_chunk, "rb") as audio_file:
+                    transcript_response = openai.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he",
+                        response_format="verbose_json",
+                        prompt="שיחה בעברית בנושא מסחר באמזון, מוצרים, והקמת ליסטים."
+                    )
+                
+                full_transcript += transcript_response['text'] + "\n\n"
+                progress_bar.progress((i + 1) / total_chunks, text=f"מתמלל קטע {i + 1}/{total_chunks}")
 
-                transcript_metadata = {
-                    'name': f"{video_name}.txt",
-                    'parents': [folder_id]
-                }
+                os.remove(audio_chunk)
 
-                media = MediaIoBaseUpload(transcript_bytes, mimetype='text/plain', resumable=True)
-                service.files().create(
-                    body=transcript_metadata,
-                    media_body=media,
-                    fields='id'
-                ).execute()
+            transcript_bytes = io.BytesIO(full_transcript.encode('utf-8'))
 
-                st.success(f"קובץ תמלול נשמר: {video_name}.txt")
+            transcript_metadata = {
+                'name': f"{video_name}.txt",
+                'parents': [folder_id]
+            }
 
-                os.remove("temp_video.mp4")
-                os.remove("temp_audio.mp3")
+            media = MediaIoBaseUpload(transcript_bytes, mimetype='text/plain', resumable=True)
+            service.files().create(
+                body=transcript_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+
+            st.success(f"קובץ תמלול נשמר: {video_name}.txt")
+
+            os.remove("temp_video.mp4")
