@@ -1,13 +1,12 @@
 import streamlit as st
 import json
-import openai
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import io
+from openai import OpenAI
 
-# הגדרת OpenAI עם המפתח המתאים
-openai.api_key = st.secrets["openai"]["api_key"]
+openai_client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 
 # התחברות ל-Google Drive דרך secrets של Streamlit
 @st.cache_resource
@@ -57,34 +56,40 @@ if st.button("התחל סריקה ותמלול"):
                 st.write(f"תמלול של {video['name']} בתהליך...")
 
                 request = service.files().get_media(fileId=video['id'])
-                video_bytes = io.BytesIO()
-                downloader = MediaIoBaseDownload(video_bytes, request)
+                video_file = io.BytesIO()
+                downloader = MediaIoBaseDownload(video_file, request)
 
                 done = False
                 while not done:
                     status, done = downloader.next_chunk()
                     st.write(f"התקדמות הורדה: {int(status.progress() * 100)}%")
 
-                video_bytes.seek(0)
+                video_file.seek(0)  # להחזיר את המצביע לתחילת הקובץ
 
-                # שליחת הקובץ ישירות ל-Whisper API
-                transcript_response = openai.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=("video.mp4", video_bytes, "video/mp4")
-                )
+                # שליחה ל-OpenAI לתמלול אמיתי
+                try:
+                    transcript_response = openai_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=("video.mp4", video_file, "video/mp4"),
+                        response_format="text"
+                    )
 
-                transcript_content = transcript_response.text
+                    transcript_content = transcript_response
 
-                transcript_bytes = io.BytesIO(transcript_content.encode('utf-8'))
-                transcript_bytes.seek(0)
+                    # העלאת קובץ התמלול ל-Google Drive
+                    transcript_file = io.BytesIO(transcript_content.encode('utf-8'))
+                    transcript_file.seek(0)
 
-                file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
-                media = MediaFileUpload(transcript_bytes, mimetype='text/plain', resumable=True)
+                    file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
+                    media = MediaIoBaseUpload(transcript_file, mimetype='text/plain', resumable=True)
 
-                service.files().create(
-                    body=file_metadata,
-                    media_body=media,
-                    fields='id'
-                ).execute()
+                    service.files().create(
+                        body=file_metadata,
+                        media_body=media,
+                        fields='id'
+                    ).execute()
 
-                st.write(f"קובץ תמלול נוצר בהצלחה: {video['name']}.txt")
+                    st.success(f"קובץ תמלול נוצר: {video['name']}.txt")
+
+                except Exception as e:
+                    st.error(f"שגיאה בתמלול הסרטון: {video['name']} - {str(e)}")
