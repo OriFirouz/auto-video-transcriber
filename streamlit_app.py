@@ -61,7 +61,11 @@ folder_options = {folder['name']: folder['id'] for folder in folders}
 selected_folders = st.multiselect("בחר תיקיות", list(folder_options.keys()))
 
 # אפשרות לבחור איכות התמלול
-model_quality = st.selectbox("בחר את איכות התמלול (דגם Whisper):", ["tiny", "base", "small", "medium", "large"], index=2)
+model_quality = st.selectbox(
+    "בחר את איכות התמלול (דגם Whisper):",
+    ["tiny", "base", "small", "medium", "large"],
+    index=2
+)
 
 if st.button("התחל סריקה ותמלול"):
     for folder_name in selected_folders:
@@ -117,13 +121,13 @@ if st.button("התחל סריקה ותמלול"):
                     transcript_status.write(f"מתמלל חלק {i+1}/{len(audio_files)}...")
                     with open(audio_file_path, "rb") as audio_file:
                         transcript_response = openai.audio.transcriptions.create(
-                            model=f"whisper-1",
+                            model=f"whisper-1-{model_quality}",
                             file=audio_file,
                             language="he",
                             response_format="text",
                             prompt="זהו סרטון בשפה העברית."
                         )
-                    full_transcript += transcript_response + "\n\n"
+                        full_transcript += transcript_response + "\n\n"
                     os.remove(audio_file_path)
 
                 transcript_status.write("✅ התמלול הושלם בהצלחה!")
