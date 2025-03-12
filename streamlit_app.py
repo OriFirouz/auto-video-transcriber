@@ -3,7 +3,10 @@ import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+import whisper
 import io
+import tempfile
+import ffmpeg
 
 # חיבור ל-Google Drive עם Secrets של Streamlit
 @st.cache_resource
@@ -16,6 +19,13 @@ def connect_to_drive():
     return build('drive', 'v3', credentials=creds)
 
 service = connect_to_drive()
+
+# טעינת מודל Whisper
+@st.cache_resource
+def load_whisper_model():
+    return whisper.load_model("base")
+
+model = load_whisper_model()
 
 # פונקציה לרשימת תיקיות ב-Google Drive
 def list_drive_folders():
@@ -51,7 +61,6 @@ if st.button("התחל סריקה ותמלול"):
             for video in videos:
                 st.write(f"תמלול של {video['name']} בתהליך...")
 
-                # הורדת הסרטון
                 request = service.files().get_media(fileId=video['id'])
                 video_file = io.BytesIO()
                 downloader = MediaIoBaseDownload(video_file, request)
@@ -61,14 +70,24 @@ if st.button("התחל סריקה ותמלול"):
                     status, done = downloader.next_chunk()
                     st.write(f"התקדמות הורדה: {int(status.progress() * 100)}%")
 
-                # כאן אמור להיות קוד תמלול אמיתי, כרגע דמה
-                transcript_content = f"תמלול מדומה של הסרטון {video['name']}"
+                video_file.seek(0)
+
+                # שמירת הקובץ באופן זמני לתמלול
+                with tempfile.NamedTemporaryFile(suffix='.mp4') as temp_video:
+                    temp_video.write(video_file.read())
+                    temp_video.flush()
+
+                    # תמלול עם whisper
+                    result = model.transcribe(temp_video.name, language="he")
+                    transcript_content = result["text"]
+
+                # יצירת קובץ עם התמלול
                 transcript_file = io.BytesIO(transcript_content.encode("utf-8"))
 
-                # העלאת התמלול חזרה ל-Google Drive
+                # העלאת התמלול ל-Google Drive
                 transcript_file.seek(0)
                 media = MediaIoBaseUpload(transcript_file, mimetype='text/plain', resumable=True)
-                file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
+                file_metadata = {'name': f"{video['name']}_transcript.txt", 'parents': [folder_id]}
 
                 service.files().create(
                     body=file_metadata,
@@ -76,4 +95,4 @@ if st.button("התחל סריקה ותמלול"):
                     fields='id'
                 ).execute()
 
-                st.write(f"קובץ תמלול נוצר: {video['name']}.txt")
+                st.write(f"קובץ תמלול נוצר בהצלחה: {video['name']}_transcript.txt")
