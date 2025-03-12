@@ -108,7 +108,7 @@ if st.button("התחל סריקה ותמלול"):
                         prompt="שיחה בעברית בנושא מסחר באמזון, מוצרים, והקמת ליסטים."
                     )
                 
-                full_transcript += transcript_response['text'] + "\n\n"
+                full_transcript += transcript_response.text + "\n\n"
                 progress_bar.progress((i + 1) / total_chunks, text=f"מתמלל קטע {i + 1}/{total_chunks}")
 
                 os.remove(audio_chunk)
