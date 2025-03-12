@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import io
 
-# התחברות ל-Google Drive דרך secrets של Streamlit
+# חיבור ל-Google Drive עם Secrets של Streamlit
 @st.cache_resource
 def connect_to_drive():
     creds_info = json.loads(st.secrets["google_credentials"]["credentials_json"])
@@ -17,7 +17,7 @@ def connect_to_drive():
 
 service = connect_to_drive()
 
-# פונקציה לקבלת רשימת תיקיות ב-Drive
+# פונקציה לרשימת תיקיות ב-Google Drive
 def list_drive_folders():
     results = service.files().list(
         q="mimeType='application/vnd.google-apps.folder'",
@@ -26,13 +26,12 @@ def list_drive_folders():
     folders = results.get('files', [])
     return folders
 
-# ממשק המשתמש
+# ממשק Streamlit
 st.title('🎬 Auto Video Transcriber')
 st.write("בחר את התיקייה או התיקיות לסריקה:")
 
 folders = list_drive_folders()
 folder_options = {folder['name']: folder['id'] for folder in folders}
-
 selected_folders = st.multiselect("בחר תיקיות", list(folder_options.keys()))
 
 if st.button("התחל סריקה ותמלול"):
@@ -52,21 +51,24 @@ if st.button("התחל סריקה ותמלול"):
             for video in videos:
                 st.write(f"תמלול של {video['name']} בתהליך...")
 
+                # הורדת הסרטון
                 request = service.files().get_media(fileId=video['id'])
-                fh = io.BytesIO()
-                downloader = MediaIoBaseDownload(fh, request)
+                video_file = io.BytesIO()
+                downloader = MediaIoBaseDownload(video_file, request)
 
                 done = False
                 while not done:
                     status, done = downloader.next_chunk()
                     st.write(f"התקדמות הורדה: {int(status.progress() * 100)}%")
 
-                # דוגמה פשוטה של יצירת תוכן תמלול
-                transcript_content = f"תמלול של הסרטון {video['name']}"
-                transcript_file = io.BytesIO(transcript_content.encode())
-                
-                file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
+                # כאן אמור להיות קוד תמלול אמיתי, כרגע דמה
+                transcript_content = f"תמלול מדומה של הסרטון {video['name']}"
+                transcript_file = io.BytesIO(transcript_content.encode("utf-8"))
+
+                # העלאת התמלול חזרה ל-Google Drive
+                transcript_file.seek(0)
                 media = MediaIoBaseUpload(transcript_file, mimetype='text/plain', resumable=True)
+                file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
 
                 service.files().create(
                     body=file_metadata,
