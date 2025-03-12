@@ -2,7 +2,7 @@ import streamlit as st
 import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import io
 
 # התחברות ל-Google Drive דרך secrets של Streamlit
@@ -66,7 +66,7 @@ if st.button("התחל סריקה ותמלול"):
                 transcript_file = io.BytesIO(transcript_content.encode())
                 
                 file_metadata = {'name': f"{video['name']}.txt", 'parents': [folder_id]}
-                media = MediaFileUpload(transcript_file, mimetype='text/plain', resumable=True)
+                media = MediaIoBaseUpload(transcript_file, mimetype='text/plain', resumable=True)
 
                 service.files().create(
                     body=file_metadata,
