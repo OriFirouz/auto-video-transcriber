@@ -11,3 +11,6 @@ ffmpeg-python
 pydrive2
 openai
 pydub
+pyannote.audio
+torch
+torchaudio
