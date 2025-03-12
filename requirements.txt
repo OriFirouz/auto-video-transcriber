@@ -3,17 +3,9 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
-google-api-python-client
 google-cloud-storage
 moviepy
 openai-whisper
 ffmpeg-python
 pydrive2
-openai-whisper
-ffmpeg-python
-openai
-streamlit
-google-auth
-google-api-python-client
-moviepy
 openai
