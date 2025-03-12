@@ -9,3 +9,5 @@ moviepy
 openai-whisper
 ffmpeg-python
 pydrive2
+openai-whisper
+ffmpeg-python
