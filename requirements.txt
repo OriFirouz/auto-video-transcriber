@@ -1,0 +1,11 @@
+streamlit
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+google-api-python-client
+google-cloud-storage
+moviepy
+openai-whisper
+ffmpeg-python
+pydrive2
