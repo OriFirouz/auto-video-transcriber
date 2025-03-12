@@ -11,3 +11,4 @@ ffmpeg-python
 pydrive2
 openai-whisper
 ffmpeg-python
+openai
