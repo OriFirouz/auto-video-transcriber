@@ -1,16 +1,12 @@
 import streamlit as st
 import json
-import openai
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import io
-import tempfile
+from openai import OpenAI
 
-# הגדרת OpenAI API
-openai.api_key = st.secrets["openai"]["api_key"]
-
-# חיבור ל-Google Drive
+# התחברות ל-Google Drive דרך secrets של Streamlit
 @st.cache_resource
 def connect_to_drive():
     creds_info = json.loads(st.secrets["google_credentials"]["credentials_json"])
@@ -20,11 +16,14 @@ def connect_to_drive():
     )
     return build('drive', 'v3', credentials=creds)
 
-service = connect_to_drive()
+drive_service = connect_to_drive()
 
-# רשימת תיקיות בדרייב
+# התחברות ל-OpenAI דרך secrets של Streamlit
+openai_client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+
+# פונקציה לקבלת רשימת תיקיות ב-Drive
 def list_drive_folders():
-    results = service.files().list(
+    results = drive_service.files().list(
         q="mimeType='application/vnd.google-apps.folder'",
         fields="files(id, name)"
     ).execute()
@@ -37,6 +36,7 @@ st.write("בחר את התיקייה או התיקיות לסריקה:")
 
 folders = list_drive_folders()
 folder_options = {folder['name']: folder['id'] for folder in folders}
+
 selected_folders = st.multiselect("בחר תיקיות", list(folder_options.keys()))
 
 if st.button("התחל סריקה ותמלול"):
@@ -44,7 +44,7 @@ if st.button("התחל סריקה ותמלול"):
         folder_id = folder_options[folder_name]
         st.write(f"סריקה של תיקייה: {folder_name}")
 
-        results = service.files().list(
+        results = drive_service.files().list(
             q=f"'{folder_id}' in parents and mimeType contains 'video/'",
             fields="files(id, name)"
         ).execute()
@@ -56,44 +56,40 @@ if st.button("התחל סריקה ותמלול"):
             for video in videos:
                 st.write(f"תמלול של {video['name']} בתהליך...")
 
-                # הורדת הסרטון
-                request = service.files().get_media(fileId=video['id'])
-                video_file = io.BytesIO()
-                downloader = MediaIoBaseDownload(video_file, request)
+                request = drive_service.files().get_media(fileId=video['id'])
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
 
                 done = False
                 while not done:
                     status, done = downloader.next_chunk()
                     st.write(f"התקדמות הורדה: {int(status.progress() * 100)}%")
 
-                video_file.seek(0)
+                fh.seek(0)
 
-                # שמירה זמנית של קובץ להעלאה ל-OpenAI Whisper API
-                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_video:
-                    temp_video.write(video_file.read())
-                    temp_video.flush()
+                # תמלול באמצעות OpenAI Whisper API
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=("audio.mp4", fh, "audio/mp4"),
+                    response_format="text"
+                )
 
-                    # שליחת הסרטון לתמלול דרך Whisper API
-                    with open(temp_video.name, "rb") as audio_file:
-                        transcript = openai.Audio.transcribe(
-                            "whisper-1",
-                            audio_file,
-                            language="he"
-                        )
+                transcript_content = transcript
 
-                    transcript_content = transcript["text"]
-
-                # יצירת קובץ התמלול והעלאה ל-Drive
-                transcript_file = io.BytesIO(transcript_content.encode("utf-8"))
+                transcript_file = io.BytesIO(transcript_content.encode('utf-8'))
                 transcript_file.seek(0)
+
+                file_metadata = {
+                    'name': f"{video['name']}.txt",
+                    'parents': [folder_id]
+                }
+
                 media = MediaIoBaseUpload(transcript_file, mimetype='text/plain', resumable=True)
 
-                file_metadata = {'name': f"{video['name']}_transcript.txt", 'parents': [folder_id]}
-
-                service.files().create(
+                drive_service.files().create(
                     body=file_metadata,
                     media_body=media,
                     fields='id'
                 ).execute()
 
-                st.write(f"קובץ תמלול נוצר בהצלחה: {video['name']}_transcript.txt")
+                st.write(f"קובץ תמלול נוצר: {video['name']}.txt")
